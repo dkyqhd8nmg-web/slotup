@@ -935,63 +935,103 @@ button:active {
   box-shadow: none;
 }
 
-/* Calendar Styles */
+/* Calendar Styles - "The Nuclear Option" (Flexbox for max compatibility) */
 #calendar {
   margin-top: var(--space-32);
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
-  /* Fixed small gap for mobile reliability */
-  max-width: 100%;
-  /* Was 350px */
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: flex-start !important;
+  width: 100% !important;
+  max-width: 400px;
+  /* Cap width for desktop */
   margin-left: auto;
   margin-right: auto;
-  padding: 0 2px;
-  /* Tiny buffer */
+  gap: 0 !important;
+  /* No gaps for percentage math */
+  box-sizing: border-box;
 }
 
 .calendar-day {
-  /* Fluid sizing */
+  /* Dimensions: 100% / 7 = 14.28% */
+  flex: 0 0 14.28%;
+  max-width: 14.28%;
+
+  /* Aspect Ratio Hack (Padding Bottom) */
+  height: 0;
+  padding-bottom: 14.28%;
+  position: relative;
+
+  /* Styling */
+  margin: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-background);
+  /* Faux gap */
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: none;
+
+  /* Text Adjustment */
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  user-select: none;
+  font-size: 14px;
+}
+
+/* Inner content centering for padding hack */
+.calendar-day::after {
+  content: attr(data-day-number);
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
-  /* Force fill grid cell */
-  min-width: 0;
-  /* Allow shrinking below content size if needed */
-  aspect-ratio: 1 / 1;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-
-  margin: 0;
-  border-radius: var(--radius-sm);
-  text-align: center;
-  cursor: pointer;
-  user-select: none;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-weight: var(--font-weight-medium);
-  transition: all var(--duration-fast) var(--ease-standard);
-  font-size: var(--font-size-base);
-  /* Default size */
-  box-shadow: var(--shadow-xs);
-  position: relative;
 }
 
-/* Responsive adjustment for very small screens */
-@media (max-width: 380px) {
+/* We need to change how the text is rendered in app.js or trick it here. 
+   Actually, it's easier to just standard flex center IF we don't use the padding trick strictly empty.
+   Let's use a simpler flex approach that works with text inside.
+*/
+
+.calendar-day {
+  /* Resetting for simpler approach: straight squares */
+  flex: 0 0 14.28%;
+  width: 14.28%;
+  height: auto;
+  aspect-ratio: 1/1;
+  /* Modern browsers */
+
+  /* Fallback for really old stuff is just min-height */
+  min-height: 40px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  border: 2px solid var(--color-background);
+  /* White space/gap mock */
+  background: var(--color-surface);
+  box-sizing: border-box;
+  font-size: 13px;
+}
+
+@supports not (aspect-ratio: 1/1) {
   .calendar-day {
-    font-size: 12px;
-    /* Smaller text on small phones */
-    border-radius: 4px;
+    height: 45px;
+    /* Fixed height fallback for ancient phones */
   }
 }
 
 .calendar-day:hover {
   border-color: var(--color-primary);
-  box-shadow: var(--shadow-sm);
   z-index: 10;
-  /* Bring to front on hover */
 }
+
+/* Bring to front on hover */
+
 
 /* Calendar Status Classes */
 .calendar-day.available {
