@@ -18,6 +18,10 @@ const SlotUp = {
       available: 'available',
       maybe: 'maybe',
       'not-available': 'not-available'
+    },
+    VIEW_MODES: {
+      SINGLE: 'single',
+      TRIPLE: 'triple'
     }
   },
 
@@ -30,7 +34,11 @@ const SlotUp = {
     selectedStatus: 'available',
     currentYear: new Date().getFullYear(),
     currentMonth: new Date().getMonth(),
-    savedParticipants: new Set()
+    savedParticipants: new Set(),
+    viewMode: 'single', // 'single' or 'triple'
+    creatorSelectedDates: new Set(), // Dates selected by plan creator
+    isCreatorMode: false, // Whether user is selecting dates as creator
+    currentPlanDates: null // Selected dates for current plan (for participants)
   },
 
   // -------------------------------------------------------------------------
@@ -68,11 +76,14 @@ const SlotUp = {
   // API: Backend Interactions
   // -------------------------------------------------------------------------
   API: {
-    async createPlan(planName) {
+    async createPlan(planName, selectedDates = []) {
       const { data, error } = await SlotUp.Utils.supabaseClient
         .from('plans')
-        .insert({ name: planName })
-        .select('id, name')
+        .insert({
+          name: planName,
+          selected_dates: selectedDates
+        })
+        .select('id, name, selected_dates')
         .single();
 
       if (error) {
@@ -131,6 +142,20 @@ const SlotUp = {
         throw error;
       }
       return data;
+    },
+
+    async getPlanDates(planId) {
+      const { data, error } = await SlotUp.Utils.supabaseClient
+        .from('plans')
+        .select('selected_dates')
+        .eq('id', planId)
+        .single();
+
+      if (error) {
+        console.error('Error loading plan dates:', error);
+        return null;
+      }
+      return data?.selected_dates || [];
     }
   },
 
@@ -160,8 +185,15 @@ const SlotUp = {
         calendarControls: null, // Dynamic
         monthYearDisplay: document.createElement('div'),
         controlsContainer: document.createElement('div'),
+        viewToggleContainer: document.createElement('div'),
+        viewToggleSingle: document.createElement('button'),
+        viewToggleTriple: document.createElement('button'),
         statusLegend: document.getElementById('status-legend'),
-        participantSection: document.getElementById('participant-section')
+        participantSection: document.getElementById('participant-section'),
+        creatorDateSelection: document.getElementById('creator-date-selection'),
+        creatorInstructions: document.getElementById('creator-instructions'),
+        creatorContinueBtn: document.getElementById('creator-continue-btn'),
+        creatorCalendar: document.getElementById('creator-calendar')
       };
     },
 
@@ -190,17 +222,19 @@ const SlotUp = {
         });
       }
 
-      // Create Plan
+      // Create Plan - Now shows date selection first
       if (els.createPlanBtn) {
-        els.createPlanBtn.addEventListener('click', async () => {
+        els.createPlanBtn.addEventListener('click', () => {
           const name = els.planNameInput.value.trim();
           if (!name) return alert('Enter plan name');
-          try {
-            const planData = await SlotUp.API.createPlan(name);
-            this.handlePlanCreated(planData);
-          } catch (e) {
-            alert('Error creating plan');
-          }
+          this.showCreatorDateSelection(name);
+        });
+      }
+
+      // Creator Continue Button - Creates plan with selected dates
+      if (els.creatorContinueBtn) {
+        els.creatorContinueBtn.addEventListener('click', async () => {
+          await this.completeCreatorSelection();
         });
       }
 
@@ -251,6 +285,14 @@ const SlotUp = {
       if (els.summaryBtn) {
         els.summaryBtn.addEventListener('click', () => this.toggleSummary());
       }
+
+      // View Toggle Buttons
+      if (els.viewToggleSingle) {
+        els.viewToggleSingle.addEventListener('click', () => this.switchViewMode(SlotUp.Config.VIEW_MODES.SINGLE));
+      }
+      if (els.viewToggleTriple) {
+        els.viewToggleTriple.addEventListener('click', () => this.switchViewMode(SlotUp.Config.VIEW_MODES.TRIPLE));
+      }
     },
 
     handlePlanCreated(planData) {
@@ -261,32 +303,102 @@ const SlotUp = {
       if (this.elements.planNameInput) this.elements.planNameInput.value = '';
     },
 
+    showCreatorDateSelection(planName) {
+      // Store plan name for later
+      SlotUp.State.currentPlanName = planName;
+      SlotUp.State.isCreatorMode = true;
+      SlotUp.State.creatorSelectedDates.clear();
+
+      // Hide creator dashboard, show date selection
+      if (this.elements.creatorDashboard) {
+        this.elements.creatorDashboard.style.display = 'none';
+      }
+      if (this.elements.creatorDateSelection) {
+        this.elements.creatorDateSelection.style.display = 'block';
+      }
+
+      // Render calendar in creator mode directly to creator calendar element
+      if (this.elements.creatorCalendar) {
+        // Clear creator calendar first
+        this.elements.creatorCalendar.innerHTML = '';
+
+        // Save original, swap temporarily just for rendering
+        const originalCalendar = this.elements.calendar;
+        this.elements.calendar = this.elements.creatorCalendar;
+
+        // Render controls and calendar
+        this.renderControls();
+        this.renderCalendar(SlotUp.State.currentYear, SlotUp.State.currentMonth);
+
+        // Restore original calendar reference immediately
+        this.elements.calendar = originalCalendar;
+      }
+    },
+
+    async completeCreatorSelection() {
+      if (SlotUp.State.creatorSelectedDates.size === 0) {
+        alert('Please select at least one date');
+        return;
+      }
+
+      const selectedDatesArray = Array.from(SlotUp.State.creatorSelectedDates);
+
+      try {
+        const planData = await SlotUp.API.createPlan(SlotUp.State.currentPlanName, selectedDatesArray);
+
+        // Hide date selection, show creator dashboard
+        if (this.elements.creatorDateSelection) {
+          this.elements.creatorDateSelection.style.display = 'none';
+        }
+        if (this.elements.creatorDashboard) {
+          this.elements.creatorDashboard.style.display = 'block';
+        }
+
+        // Reset creator mode
+        SlotUp.State.isCreatorMode = false;
+        SlotUp.State.creatorSelectedDates.clear();
+
+        // Show plan created message
+        this.handlePlanCreated(planData);
+      } catch (e) {
+        console.error(e);
+        alert('Error creating plan');
+      }
+    },
+
     async loadAndRenderUserAvailability(name) {
       const data = await SlotUp.API.loadAvailability(SlotUp.State.currentPlanId, name);
 
-      // Reset calendar View
+      // Reset all calendar day cells
       this.elements.calendar.querySelectorAll('div.calendar-day').forEach(div => {
         div.className = 'calendar-day';
         div.removeAttribute('data-status');
-        // We don't remove textContent (day number)
       });
 
       // Apply loaded data
       data.forEach(({ day, status }) => {
         const date = new Date(day);
-        // Only apply if matches current view
-        if (date.getFullYear() === SlotUp.State.currentYear &&
-          date.getMonth() === SlotUp.State.currentMonth) {
-          const dayNum = date.getDate();
-          // Find element by text content
-          const dayDiv = Array.from(this.elements.calendar.children).find(
-            d => d.classList.contains('calendar-day') && parseInt(d.textContent) === dayNum
-          );
-          if (dayDiv) {
-            dayDiv.setAttribute('data-status', status);
-            dayDiv.className = `calendar-day ${SlotUp.Config.STATUS_CLASSES[status]}`;
+        const year = date.getFullYear();
+        const month = date.getMonth();
+        const dayNum = date.getDate();
+
+        // Find the calendar grid that matches this date
+        const grids = this.elements.calendar.querySelectorAll('.calendar-grid');
+        grids.forEach(grid => {
+          const gridYear = parseInt(grid.getAttribute('data-year'));
+          const gridMonth = parseInt(grid.getAttribute('data-month'));
+
+          if (gridYear === year && gridMonth === month) {
+            // Find the day element within this grid
+            const dayDiv = Array.from(grid.querySelectorAll('.calendar-day')).find(
+              d => parseInt(d.getAttribute('data-day')) === dayNum
+            );
+            if (dayDiv) {
+              dayDiv.setAttribute('data-status', status);
+              dayDiv.className = `calendar-day ${SlotUp.Config.STATUS_CLASSES[status]}`;
+            }
           }
-        }
+        });
       });
     },
 
@@ -312,20 +424,26 @@ const SlotUp = {
       btn.style.opacity = '0.6';
 
       try {
-        // Collect Data
+        // Collect Data from all calendar grids
         const availabilities = [];
-        const dayDivs = this.elements.calendar.querySelectorAll('div[data-status]');
+        const grids = this.elements.calendar.querySelectorAll('.calendar-grid');
 
-        dayDivs.forEach(dayEl => {
-          const day = dayEl.textContent.padStart(2, '0');
-          const status = dayEl.getAttribute('data-status');
-          const dayDate = `${SlotUp.State.currentYear}-${String(SlotUp.State.currentMonth + 1).padStart(2, '0')}-${day}`;
+        grids.forEach(grid => {
+          const gridYear = parseInt(grid.getAttribute('data-year'));
+          const gridMonth = parseInt(grid.getAttribute('data-month'));
+          const dayDivs = grid.querySelectorAll('div[data-status]');
 
-          availabilities.push({
-            plan_id: SlotUp.State.currentPlanId,
-            day: dayDate,
-            participant_name: name,
-            status: status
+          dayDivs.forEach(dayEl => {
+            const day = dayEl.getAttribute('data-day').padStart(2, '0');
+            const status = dayEl.getAttribute('data-status');
+            const dayDate = `${gridYear}-${String(gridMonth + 1).padStart(2, '0')}-${day}`;
+
+            availabilities.push({
+              plan_id: SlotUp.State.currentPlanId,
+              day: dayDate,
+              participant_name: name,
+              status: status
+            });
           });
         });
 
@@ -353,13 +471,72 @@ const SlotUp = {
 
     renderCalendar(year, month) {
       const cal = this.elements.calendar;
-      if (!cal) return;
+      if (!cal) {
+        return;
+      }
 
       cal.innerHTML = '';
 
-      // Update Controls Display
-      this.elements.monthYearDisplay.textContent = SlotUp.Utils.formatMonthYear(year, month);
+      if (SlotUp.State.viewMode === SlotUp.Config.VIEW_MODES.TRIPLE) {
+        // Render 3-month view
+        cal.className = 'calendar-container-triple';
 
+        // Update month/year display to show range
+        const endMonth = month + 2;
+        const endYear = endMonth > 11 ? year + 1 : year;
+        const adjustedEndMonth = endMonth > 11 ? endMonth - 12 : endMonth;
+
+        const displayText = `${SlotUp.Utils.formatMonthYear(year, month)} - ${SlotUp.Utils.formatMonthYear(endYear, adjustedEndMonth)}`;
+        if (this.elements.monthYearDisplay) {
+          this.elements.monthYearDisplay.textContent = displayText;
+        }
+
+        // Render 3 consecutive months
+        for (let i = 0; i < 3; i++) {
+          let currentMonth = month + i;
+          let currentYear = year;
+
+          // Handle year overflow
+          if (currentMonth > 11) {
+            currentMonth -= 12;
+            currentYear++;
+          }
+
+          const monthWrapper = document.createElement('div');
+          monthWrapper.className = 'calendar-month-wrapper';
+
+          // Add month label
+          const monthLabel = document.createElement('div');
+          monthLabel.className = 'calendar-month-label';
+          monthLabel.textContent = SlotUp.Utils.formatMonthYear(currentYear, currentMonth);
+          monthWrapper.appendChild(monthLabel);
+
+          // Create grid container
+          const monthGrid = document.createElement('div');
+          monthGrid.className = 'calendar-grid';
+          monthGrid.setAttribute('data-year', currentYear);
+          monthGrid.setAttribute('data-month', currentMonth);
+
+          this.renderMonthGrid(monthGrid, currentYear, currentMonth);
+          monthWrapper.appendChild(monthGrid);
+          cal.appendChild(monthWrapper);
+        }
+      } else {
+        // Render single month view
+        cal.className = 'calendar-container-single';
+        this.elements.monthYearDisplay.textContent = SlotUp.Utils.formatMonthYear(year, month);
+
+        const monthGrid = document.createElement('div');
+        monthGrid.className = 'calendar-grid';
+        monthGrid.setAttribute('data-year', year);
+        monthGrid.setAttribute('data-month', month);
+
+        this.renderMonthGrid(monthGrid, year, month);
+        cal.appendChild(monthGrid);
+      }
+    },
+
+    renderMonthGrid(gridElement, year, month) {
       const firstDay = new Date(year, month, 1);
       const lastDay = new Date(year, month + 1, 0);
       const daysCount = lastDay.getDate();
@@ -371,15 +548,14 @@ const SlotUp = {
         const header = document.createElement('div');
         header.className = 'calendar-header';
         header.textContent = day;
-        cal.appendChild(header);
+        gridElement.appendChild(header);
       });
 
       // Empty cells
       for (let i = 0; i < startDay; i++) {
         const empty = document.createElement('div');
         empty.className = 'calendar-day empty';
-        // Note: 'empty' class allows us to style them differently (e.g. transparent background)
-        cal.appendChild(empty);
+        gridElement.appendChild(empty);
       }
 
       // Day cells
@@ -387,12 +563,44 @@ const SlotUp = {
         const dayEl = document.createElement('div');
         dayEl.textContent = day;
         dayEl.className = 'calendar-day';
-        dayEl.addEventListener('click', () => {
-          const status = SlotUp.State.selectedStatus;
-          dayEl.setAttribute('data-status', status);
-          dayEl.className = `calendar-day ${SlotUp.Config.STATUS_CLASSES[status]}`;
-        });
-        cal.appendChild(dayEl);
+        dayEl.setAttribute('data-day', day);
+
+        const dayDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+        if (SlotUp.State.isCreatorMode) {
+          // Creator mode: Allow selecting any date
+          dayEl.addEventListener('click', () => {
+            if (SlotUp.State.creatorSelectedDates.has(dayDate)) {
+              SlotUp.State.creatorSelectedDates.delete(dayDate);
+              dayEl.classList.remove('creator-selected');
+            } else {
+              SlotUp.State.creatorSelectedDates.add(dayDate);
+              dayEl.classList.add('creator-selected');
+            }
+          });
+
+          // Mark already selected dates
+          if (SlotUp.State.creatorSelectedDates.has(dayDate)) {
+            dayEl.classList.add('creator-selected');
+          }
+        } else {
+          // Participant mode: Check if date is in allowed list
+          const allowedDates = SlotUp.State.currentPlanDates;
+          const isAllowed = !allowedDates || allowedDates.length === 0 || allowedDates.includes(dayDate);
+
+          if (!isAllowed) {
+            dayEl.classList.add('disabled');
+          } else {
+            dayEl.addEventListener('click', () => {
+              const status = SlotUp.State.selectedStatus;
+              dayEl.setAttribute('data-status', status);
+              dayEl.setAttribute('data-day', day); // Ensure data-day is preserved
+              dayEl.className = `calendar-day ${SlotUp.Config.STATUS_CLASSES[status]}`;
+            });
+          }
+        }
+
+        gridElement.appendChild(dayEl);
       }
     },
 
@@ -417,17 +625,81 @@ const SlotUp = {
       display.style.display = 'inline-block';
       display.style.minWidth = '140px';
 
+      // Create view toggle buttons
+      const viewToggle = this.elements.viewToggleContainer;
+      viewToggle.className = 'view-toggle-container';
+      viewToggle.innerHTML = '';
+
+      const singleBtn = this.elements.viewToggleSingle;
+      singleBtn.textContent = '1 Month';
+      singleBtn.className = 'view-toggle-btn';
+      if (SlotUp.State.viewMode === SlotUp.Config.VIEW_MODES.SINGLE) {
+        singleBtn.classList.add('active');
+        singleBtn.classList.remove('active'); // Wait, logic error? No.
+        if (SlotUp.State.viewMode === SlotUp.Config.VIEW_MODES.SINGLE) singleBtn.classList.add('active'); // fix
+      } else {
+        singleBtn.classList.remove('active');
+      }
+
+      const tripleBtn = this.elements.viewToggleTriple;
+      tripleBtn.textContent = '3 Months';
+      tripleBtn.className = 'view-toggle-btn';
+      if (SlotUp.State.viewMode === SlotUp.Config.VIEW_MODES.TRIPLE) {
+        tripleBtn.classList.add('active');
+      } else {
+        tripleBtn.classList.remove('active');
+      }
+
+      viewToggle.appendChild(singleBtn);
+      viewToggle.appendChild(tripleBtn);
+
       container.appendChild(prevBtn);
       container.appendChild(display);
       container.appendChild(nextBtn);
+      container.appendChild(viewToggle);
 
       if (this.elements.calendar && this.elements.calendar.parentNode) {
         this.elements.calendar.parentNode.insertBefore(container, this.elements.calendar);
       }
     },
 
+    switchViewMode(mode) {
+      if (SlotUp.State.viewMode === mode) return; // Already in this mode
+
+      SlotUp.State.viewMode = mode;
+
+      // Handle Creator Mode vs Participant Mode rendering
+      if (SlotUp.State.isCreatorMode && this.elements.creatorCalendar) {
+        // In creator mode, we need to render to the creator calendar
+        const originalCalendar = this.elements.calendar;
+        this.elements.calendar = this.elements.creatorCalendar;
+
+        // Clear before re-rendering (important for creator mode)
+        this.elements.calendar.innerHTML = '';
+
+        this.renderControls();
+        this.renderCalendar(SlotUp.State.currentYear, SlotUp.State.currentMonth);
+
+        // Restore
+        this.elements.calendar = originalCalendar;
+      } else {
+        // Normal Participant Mode
+        this.renderControls();
+        this.renderCalendar(SlotUp.State.currentYear, SlotUp.State.currentMonth);
+
+        // Reload availability if participant name is present
+        const name = this.elements.participantName?.value.trim();
+        if (name) {
+          this.loadAndRenderUserAvailability(name);
+        }
+      }
+    },
+
     navigateMonth(offset) {
-      SlotUp.State.currentMonth += offset;
+      // In triple view, navigate by 3 months; in single view, by 1 month
+      const step = SlotUp.State.viewMode === SlotUp.Config.VIEW_MODES.TRIPLE ? 3 : 1;
+      SlotUp.State.currentMonth += (offset * step);
+
       if (SlotUp.State.currentMonth < 0) {
         SlotUp.State.currentMonth = 11;
         SlotUp.State.currentYear--;
@@ -506,6 +778,38 @@ const SlotUp = {
       }
     },
 
+    switchViewMode(mode) {
+      if (SlotUp.State.viewMode === mode) return; // Already in this mode
+
+      SlotUp.State.viewMode = mode;
+
+      // Handle Creator Mode vs Participant Mode rendering
+      if (SlotUp.State.isCreatorMode && this.elements.creatorCalendar) {
+        // In creator mode, we need to render to the creator calendar
+        const originalCalendar = this.elements.calendar;
+        this.elements.calendar = this.elements.creatorCalendar;
+
+        // Clear before re-rendering (important for creator mode)
+        this.elements.calendar.innerHTML = '';
+
+        this.renderControls();
+        this.renderCalendar(SlotUp.State.currentYear, SlotUp.State.currentMonth);
+
+        // Restore
+        this.elements.calendar = originalCalendar;
+      } else {
+        // Normal Participant Mode
+        this.renderControls();
+        this.renderCalendar(SlotUp.State.currentYear, SlotUp.State.currentMonth);
+
+        // Reload availability if participant name is present
+        const name = this.elements.participantName?.value.trim();
+        if (name) {
+          this.loadAndRenderUserAvailability(name);
+        }
+      }
+    },
+
     setMainViewVisibility(visible) {
       // Use empty string to remove inline style and let CSS take over (display: grid)
       const display = visible ? '' : 'none';
@@ -515,8 +819,13 @@ const SlotUp = {
       if (this.elements.statusLegend) this.elements.statusLegend.style.display = display;
     },
 
-    resetToParticipantView(planId) {
+    async resetToParticipantView(planId) {
       SlotUp.State.currentPlanId = parseInt(planId);
+
+      // Load plan dates
+      const planDates = await SlotUp.API.getPlanDates(planId);
+      SlotUp.State.currentPlanDates = planDates;
+
       if (this.elements.planTitle) this.elements.planTitle.textContent = `Plan #${planId}`;
       if (this.elements.creatorDashboard) this.elements.creatorDashboard.style.display = 'none';
       if (this.elements.participantView) this.elements.participantView.style.display = 'block';

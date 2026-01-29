@@ -937,25 +937,25 @@ button:active {
 
 /* Calendar Styles - Modern Grid Refactor */
 /* Calendar Styles - Standard UI */
+/* Calendar Styles - Standard UI */
 #calendar {
   margin-top: var(--space-32);
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
-  /* Clean, consistent gap */
-
-  /* CONSTRAINT: Classic Calendar Width */
   width: 100%;
-  max-width: 350px;
-  /* Force it to stay small like a real calendar */
   margin-left: auto;
   margin-right: auto;
   padding: 0;
+}
 
-  /* Optional: Add a border container look */
-  /* border: 1px solid var(--color-border); */
-  /* padding: 12px; */
-  /* border-radius: var(--radius-lg); */
+.calendar-container-single {
+  max-width: 350px;
+}
+
+/* Ensure single view grid is properly styled */
+.calendar-container-single .calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  width: 100%;
 }
 
 /* Weekday Headers */
@@ -1060,6 +1060,119 @@ button:active {
 
 #calendar-controls button:hover {
   background: var(--color-secondary-hover);
+}
+
+/* View Toggle Container */
+.view-toggle-container {
+  display: inline-flex;
+  gap: var(--space-4);
+  margin-left: var(--space-16);
+  background: var(--color-secondary);
+  border-radius: var(--radius-base);
+  padding: var(--space-2);
+}
+
+.view-toggle-btn {
+  padding: var(--space-6) var(--space-12) !important;
+  font-size: var(--font-size-sm);
+  background: transparent !important;
+  color: var(--color-text-secondary) !important;
+  border: none;
+  border-radius: var(--radius-sm);
+  transition: all var(--duration-fast) var(--ease-standard);
+  cursor: pointer;
+  font-weight: var(--font-weight-medium);
+  margin: 0 !important;
+}
+
+.view-toggle-btn:hover {
+  background: var(--color-secondary-hover) !important;
+  color: var(--color-text) !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.view-toggle-btn.active {
+  background: var(--color-primary) !important;
+  color: var(--color-btn-primary-text) !important;
+}
+
+/* Calendar Container Layouts */
+.calendar-container-single .calendar-grid {
+  margin-top: var(--space-32);
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  width: 100%;
+  max-width: 350px;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 0;
+}
+
+.calendar-container-triple {
+  display: flex;
+  gap: var(--space-24);
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: var(--space-32);
+}
+
+.calendar-month-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.calendar-month-label {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  margin-bottom: var(--space-8);
+  text-align: center;
+}
+
+.calendar-container-triple .calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  width: 100%;
+  max-width: 280px;
+  padding: 0;
+}
+
+/* Responsive: Stack calendars on mobile */
+@media (max-width: 768px) {
+  .calendar-container-triple {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .calendar-container-triple .calendar-grid {
+    max-width: 350px;
+  }
+}
+
+/* Creator Selected Date */
+.calendar-day.creator-selected {
+  background: var(--color-primary) !important;
+  color: var(--color-btn-primary-text) !important;
+  font-weight: var(--font-weight-bold);
+  border-color: var(--color-primary) !important;
+}
+
+/* Disabled Date (not in plan's selected dates) */
+.calendar-day.disabled {
+  background: transparent !important;
+  color: var(--color-text-secondary) !important;
+  opacity: 0.3;
+  cursor: not-allowed !important;
+  pointer-events: none;
+}
+
+.calendar-day.disabled:hover {
+  transform: none !important;
+  box-shadow: none !important;
 }
 
 /* Sections */
